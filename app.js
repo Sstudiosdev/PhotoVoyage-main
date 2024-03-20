@@ -3,11 +3,12 @@ const multer = require('multer');
 const fs = require('fs');
 const bcrypt = require('bcrypt');
 const session = require('express-session');
-const { parseString } = require('xml2js');
 const cookieParser = require('cookie-parser');
 
 const generateCaptcha = require('./services/captchaS');
 const { db, userDB } = require('./services/database');
+const { isAdmin } = require('./tools/adminUtils');
+const activeUsers = new Map();
 
 const app = express();
 const port = 3000;
@@ -19,7 +20,6 @@ app.use(session({
     saveUninitialized: false,
     cookie: { maxAge: 2 * 24 * 60 * 60 * 1000 } // 2 day expiration
 }));
-
 
 // Multer configuration for uploading files
 const upload = multer({ dest: 'uploads/' });
@@ -67,6 +67,12 @@ app.get('/public/user-details.css', function(req, res) {
     res.sendFile(__dirname + '/public/user-details.css');
 });
 
+// active-users.css
+app.get('/public/active-users.css', function(req, res) {
+    res.setHeader('Content-Type', 'text/css');
+    res.sendFile(__dirname + '/public/active-users.css');
+});
+
 // Configure Express to serve static files from the "uploads" folder
 app.use('/uploads', express.static('uploads'));
 
@@ -76,28 +82,6 @@ app.use(session({
     resave: false,
     saveUninitialized: false
 }));
-
-// Función para verificar si el usuario es un administrador
-function isAdmin(username) {
-    const xmlData = fs.readFileSync('private/admins.xml', 'utf8'); // Change the path to 'private/admins.xml'
-    let isAdmin = false;
-
-    parseString(xmlData, (err, result) => {
-        if (err) {
-            console.error('Failed to parse XML file');
-            return;
-        }
-        const admins = result.admins.admin;
-        for (let i = 0; i < admins.length; i++) {
-            if (admins[i] === username) {
-                isAdmin = true;
-                break;
-            }
-        }
-    });
-
-    return isAdmin;
-}
 
 // Protect routes that require login
 function requireLogin(req, res, next) {
@@ -113,7 +97,7 @@ function requireLogin(req, res, next) {
 
 // user register
 app.post('/register', async (req, res) => {
-    const { username, password, captcha, answer } = req.body;
+    const { username, email, password, captcha, answer } = req.body;
     const actualAnswer = req.session.captcha;
 
     if (parseInt(captcha) !== actualAnswer) {
@@ -130,7 +114,7 @@ app.post('/register', async (req, res) => {
         }
 
         const hashedPassword = await bcrypt.hash(password, 10);
-        userDB.run('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword], (err) => {
+        userDB.run('INSERT INTO users (username, email, password) VALUES (?, ?, ?)', [username, email, hashedPassword], (err) => {
             if (err) {
                 res.status(500).redirect('/error');
             }
@@ -177,24 +161,25 @@ app.get('/logout', (req, res) => {
 // Route to upload photos
 app.post('/upload', upload.single('photo'), (req, res) => {
     const photo = req.file;
-    if (!photo) {
+    const photoName = req.body.photoName; // Obtener el nombre de la imagen del cuerpo de la solicitud
+
+    if (!photo || !photoName) { // Verificar si la imagen y el nombre están presentes
         res.status(400).redirect('/error');
-    }
-
-    db.run('INSERT INTO photos (filename) VALUES (?)', [photo.filename], (err) => {
-        if (err) {
-            res.status(500).redirect('/error');
+    } else {
+        // Insertar la información de la foto en la base de datos
+        if (photo.filename) {
+            db.run('INSERT INTO photos (filename, name) VALUES (?, ?)', [photo.filename, photoName], (err) => {
+                if (err) {
+                    res.status(500).redirect('/error');
+                } else {
+                    // Redirigir a la página principal después de la carga exitosa
+                    res.redirect('/');
+                }
+            });
+        } else {
+            res.status(400).redirect('/error'); // Handle the case where photo.filename is undefined
         }
-
-        // Get the information of the photo just uploaded
-        db.get('SELECT * FROM photos WHERE id = ?', [this.lastID], (err, row) => {
-            if (err) {
-                res.status(500).redirect('/error');
-            }
-
-            res.redirect('/');
-        });
-    });
+    }
 });
 
 // Path to get the list of photos
@@ -213,7 +198,25 @@ app.get('/login', (req, res) => {
 
 app.use((req, res, next) => {
     delete req.session.message;
+    if (req.session.isLoggedIn) {
+        activeUsers.set(req.session.username, true);
+    }
+
     next();
+});
+
+app.use('/logout', (req, res, next) => {
+    if (req.session.isLoggedIn) {
+        activeUsers.delete(req.session.username);
+    }
+    next();
+});
+
+app.get('/active-users', (req, res) => {
+    const activeUsersCount = activeUsers.size;
+    const isLoggedIn = req.session.isLoggedIn;
+    const isAdmin = req.session.isAdmin;
+    res.render('active-users', { activeUsersCount: activeUsersCount, isLoggedIn: isLoggedIn, isAdmin: isAdmin });
 });
 
 // Path to display the registration page
@@ -231,8 +234,9 @@ app.get('/', (req, res) => {
         }
         const isLoggedIn = req.session.isLoggedIn;
         const username = req.session.username;
+        const activeUsersCount = activeUsers.size;
         const isAdmin = req.session.isAdmin || false; // Check if isAdmin is set in session, default to false if not set
-        res.render('index', { photos: rows, isLoggedIn: isLoggedIn, isAdmin: isAdmin });
+        res.render('index', { photos: rows, isLoggedIn: isLoggedIn, isAdmin: isAdmin, activeUsersCount: activeUsersCount });
     });
 });
 
