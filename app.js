@@ -11,7 +11,7 @@ const { isAdmin } = require('./tools/adminUtils');
 const activeUsers = new Map();
 
 const app = express();
-const port = 3000;
+
 app.use(cookieParser());
 
 app.use(session({
@@ -31,49 +31,8 @@ app.use(express.json());
 app.set('view engine', 'ejs');
 app.set('views', __dirname + '/views');
 
-// CSS configuration
-app.get('/public/styles.css', function(req, res) {
-    res.setHeader('Content-Type', 'text/css');
-    res.sendFile(__dirname + '/public/styles.css');
-});
-
-// error-page css
-app.get('/public/error-page.css', function(req, res) {
-    res.setHeader('Content-Type', 'text/css');
-    res.sendFile(__dirname + '/public/error-page.css');
-});
-
-// admin css
-app.get('/public/admin.css', function(req, res) {
-    res.setHeader('Content-Type', 'text/css');
-    res.sendFile(__dirname + '/public/admin.css');
-});
-
-// login && Register css
-app.get('/public/login.css', function(req, res) {
-    res.setHeader('Content-Type', 'text/css');
-    res.sendFile(__dirname + '/public/login.css');
-});
-
-// admin-users css
-app.get('/public/admin-user.css', function(req, res) {
-    res.setHeader('Content-Type', 'text/css');
-    res.sendFile(__dirname + '/public/admin-user.css');
-});
-
-// user-details.css
-app.get('/public/user-details.css', function(req, res) {
-    res.setHeader('Content-Type', 'text/css');
-    res.sendFile(__dirname + '/public/user-details.css');
-});
-
-// active-users.css
-app.get('/public/active-users.css', function(req, res) {
-    res.setHeader('Content-Type', 'text/css');
-    res.sendFile(__dirname + '/public/active-users.css');
-});
-
-// Configure Express to serve static files from the "uploads" folder
+// CSS and static file configurations
+app.use('/public', express.static(__dirname + '/public'));
 app.use('/uploads', express.static('uploads'));
 
 // Middleware configuration for sessions
@@ -235,13 +194,12 @@ app.get('/', (req, res) => {
         const isLoggedIn = req.session.isLoggedIn;
         const username = req.session.username;
         const activeUsersCount = activeUsers.size;
-        const isAdmin = req.session.isAdmin || false; // Check if isAdmin is set in session, default to false if not set
-        res.render('index', { photos: rows, isLoggedIn: isLoggedIn, isAdmin: isAdmin, activeUsersCount: activeUsersCount });
+        const isAdmin = req.session.isAdmin || false;
+        res.render('index', { photos: rows, isLoggedIn: isLoggedIn, isAdmin: isAdmin, activeUsersCount: activeUsersCount});
     });
 });
 
-
-// path to display the error page
+// Path to display the error page
 app.get('/error', (req, res) => {
     res.render('error');
 });
@@ -323,14 +281,4 @@ app.post('/admin/delete/:id', requireAdmin, (req, res) => {
     });
 });
 
-// Start the server
-app.listen(port, () => {
-    console.log(`The local server is being turned on please log in to the web from these links`)
-    console.log(``)
-    console.log(`Server running at http://localhost:${port}`);
-    console.log(`Admin Server running at http://localhost:${port}/admin`);
-    console.log(``)
-    console.log(`Support:`)
-    console.log(`Github: https://github.com/api-tsukasa/PhotoVoyage/`)
-    console.log(`Report bugs: https://github.com/api-tsukasa/PhotoVoyage/issues`)
-});
+module.exports = app;
